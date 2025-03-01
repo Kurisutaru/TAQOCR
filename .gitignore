@@ -162,4 +162,5 @@ cython_debug/
 #Exclude some files - Kurisutaru
 PaddleOCR-json/
 redive_jp.db
-PrincessConnectReDive.png
+PrincessConnectReDive-FrameSetup.png
+ocr.png
