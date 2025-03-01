@@ -1,0 +1,10 @@
+[project]
+name = "taqocr"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "pillow>=11.1.0",
+    "rapidfuzz>=3.12.1",
+    "pywin32>=308"
+]

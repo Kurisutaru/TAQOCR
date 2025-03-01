@@ -1,11 +1,11 @@
 import ctypes
-import re
 import sqlite3
 import time
 from io import BytesIO
+import traceback
 
 import rapidfuzz.utils
-from PIL import ImageGrab, ImageDraw, Image, ImageEnhance
+from PIL import ImageGrab, ImageDraw, ImageEnhance
 from rapidfuzz import process
 from win32gui import EnumWindows, SetForegroundWindow, GetClientRect, GetWindowRect, GetWindowText
 
@@ -18,11 +18,20 @@ print("Princess Connect! Re:Dive - 2022 Anniversary Quiz Solver")
 print("================================")
 
 window_title = "PrincessConnectReDive"
+# [x, y, width, height]
+# x ~ width 0 2
+# y ~ height 1 3
 first_question_region = (30, 110, 700, 280)
 second_question_region = (30, 280, 700, 380)
 
-player_position_1 = (70, 690)
-position_x_difference = 190
+default_width = 1280
+default_height = 720
+
+width_reduce = 0
+height_reduce = 0
+reduce_percentage = 0
+
+player_position = ([60, 685],[250, 685],[440, 685],[640, 685],[830, 685])
 active_player_color = (255, 139, 55)
 
 print("Window Title:", window_title)
@@ -45,11 +54,45 @@ class Window:
         print("Resolution:", _frame.size)
         print("Base Coordinates:", (self.xbase, self.ybase))
         draw = ImageDraw.Draw(_frame)
+
+        global width_reduce
+        global height_reduce
+
+        width_reduce = _frame.width / default_width
+        height_reduce = _frame.height / default_height
+
+        print("width_reduce: ", width_reduce)
+        print("height_reduce: ", height_reduce)
+
+        global player_position
+        global reduce_percentage
+
+        reduce_percentage = ((_frame.width  * _frame.height) / (default_width * default_height))
+        player_position = [[player_position[0][0] * width_reduce, player_position[0][1] * height_reduce],
+                            [player_position[1][0] * width_reduce, player_position[1][1] * height_reduce],
+                            [player_position[2][0] * width_reduce, player_position[2][1] * height_reduce],
+                            [player_position[3][0] * width_reduce, player_position[3][1] * height_reduce],
+                            [player_position[4][0] * width_reduce, player_position[4][1] * height_reduce]]
+
+        print("reduce_percentage: ", reduce_percentage)
+
+        global first_question_region
+        global second_question_region
+
+        first_question_region = tuple([first_question_region[0] * width_reduce, first_question_region[1] * height_reduce, first_question_region[2] * width_reduce, first_question_region[3] * height_reduce])
+        second_question_region = tuple([second_question_region[0] * width_reduce, second_question_region[1] * height_reduce, second_question_region[2] * width_reduce, second_question_region[3] * height_reduce])
+
+        print("Question Area Reduced:", first_question_region)
+
         draw.rectangle(first_question_region, outline=(255, 0, 0))
         draw.text((first_question_region[0], first_question_region[1]), "question", "red")
         draw.rectangle(second_question_region, outline=(255, 0, 0))
         draw.text((second_question_region[0], second_question_region[1]), "question 2", "red")
-        _frame.save(window_title + ".png", "PNG")
+        for i in player_position:
+            draw.text((i[0], i[1]), "•", "red")
+
+        _frame.save(window_title + "-FrameSetup.png", "PNG")
+
 
     def screenshot(self):
         SetForegroundWindow(pcrd_window)
@@ -78,9 +121,9 @@ class Window:
 
         _frame = ImageGrab.grab(bbox=(left, top, right, bottom))
 
-        if debug_window:
-            image = Image.open("frame.png")
-            return image
+        # if debug_window:
+            # image = Image.open("frame.png")
+            # return image
 
         return _frame
 
@@ -103,12 +146,12 @@ class OCR:
         final_image.save(buffered, format="PNG")
 
         if debug_window:
-            final_image.save("123.png", format="PNG")
+            final_image.save("ocr.png", format="PNG")
 
         result = self.ocr.runBytes(buffered.getvalue())
 
         if debug_ocr:
-            with open('123.png', 'rb') as image_file:
+            with open('ocr.png', 'rb') as image_file:
                 # Read the contents of the image file as bytes
                 image_bytes = image_file.read()
             result = self.ocr.runBytes(image_bytes)
@@ -121,9 +164,9 @@ class OCR:
             filtered_data = [item for item in result["data"] if item["text"] not in exclude_words]
             txts = tbpu.run_merge_line_h_m_paragraph(filtered_data)
             if debug_window:
-                img1 = visualize(result["data"], "123.png").get(isOrder=True)
-                img2 = visualize(txts, "123.png").get(isOrder=True)
-                visualize.createContrast(img1, img2).show()
+                img1 = visualize(result["data"], "ocr.png").get(isOrder=True)
+                img2 = visualize(txts, "ocr.png").get(isOrder=True)
+                # visualize.createContrast(img1, img2).show()
             if len(txts) == 1:
                 text = txts[0]['text'] if txts and 'text' in txts[0] else ''
             else:
@@ -236,16 +279,21 @@ unique_text = ''.join(dict.fromkeys(single_sentence[0]['clue']))
 
 
 def get_current_active_player_by_pixel(frame_data):
-    for i in range(5):
+    for index, i in enumerate(player_position):
         # Calculate the current position
-        x, y = player_position_1[0] + i * position_x_difference, player_position_1[1]
+        x, y = int(i[0]), int(i[1])
 
         # Get the pixel color at the current position
         pixel_color = frame_data.getpixel((x, y))
 
+        # if debug_window:
+            # print("(x, y) : ", (x, y))
+            # print("pixel_color : ", pixel_color)
+            # print("if pixel_color == active_player_color: ", pixel_color == active_player_color)
+
         # Compare the pixel color with the active player color
         if pixel_color == active_player_color:
-            return i
+            return index
 
 
 def format_answer_text_from_position(text, position):
@@ -273,14 +321,14 @@ while True:
     try:
         frame = window.screenshot()
         current_active_player_position = get_current_active_player_by_pixel(frame)
-        question_regions = [first_question_region, second_question_region]
+
+        question_regions = [tuple(first_question_region), tuple(second_question_region)]
         final_question = None
 
         for region in question_regions:
             question_image = frame.crop(region)
             question_ocr = ocr_class.get_single_line_from_ocr_result(question_image)
             question_fixed = ''.join(char for char in question_ocr if char in unique_text)
-
             data_fuzzy_select = process.extractOne(query=question_fixed,
                                                    choices=taq_data_clue,
                                                    scorer=rapidfuzz.fuzz.QRatio,
@@ -320,5 +368,6 @@ while True:
         print("================================")
         print(f"Caught an exception: {e}")
         print(f"Timeout 5s before retrying")
+        print(traceback.format_exc())
         time.sleep(5)
         print("================================")
